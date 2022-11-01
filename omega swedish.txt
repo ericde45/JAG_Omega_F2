@@ -1,0 +1,138 @@
+swedish new year 89-90
+
+loader en 6A4
+d0 = numéro ecran
+0 = menu
+2 = logo omega
+
+CA8 = table des parametres de chargement disquette
+	D0 = $6E
+	D1 = $46
+	D2 = $1
+	A0 = $1000 => $712
+	$7C88 = taille 
+	$1000
+	
+	FIN en $8C88
+	
+	1973E = fin data ?
+
+
+	$7D8=decompression
+		= mets à zero la BSS
+
+F2
+
+debut de démo en $1000
+
+- RUN scroller = 
+- RUN music = 
+- RUN LOGO = 
+
+main loop : 
+11e0 = 
+	- 883e = replay music
+	- 1114 = 
+
+1650 = scrolling
+
+
+------------
+$8778 = sequence de controle du logo
+
+palette en 6928=couleurs logo omega, 6908=couleurs logo atari
+
+--------------
+parametres / variables de gestion du logo :
+$87E2 = pointeur actuel dans la liste de codes de controle du logo
+$87DC = pointeur sur la fin de la table de choix de lignes en Y
+$87E0 = ?   0/1/2/3  = sens du mouvement ??
+$8802 = increment pour choix du logo
+$87EE = pointeur sur positions en X
+$87F2 = pointeur sur wave en X
+
+
+de AF16 à FD9A : table de ?
+
+
+----------------
+localiser les graphs :
+
+fonte de caractere = ?
+logo ATARI = 1D284
+logo OMEGA = 
+pointeur ecran = 78000 / 70000 
+
+pointeur actuel ecran = $87FA
+
+ecart entre les logos = 132*8*160
+
+-----------------------
+tables a utiliser:
+
+- 1: table des commandes de controle du logo : table pointée par 87E2 : de 8778, se termine par zéro en $87d8
+0000 0001				; s'applique sur 87DC donc sur 87FE donc sur table 4 
+0000 c274				; OK
+0000 0002				; OK
+0000 0096				; s'applique sur 87DC, en fait sur 87EE => sur table positions en X
+0000 0003				; s'appliquer à 87FE donc sur table 4 
+0000 af16				; OK
+0000 0001				; OK
+0000 c274				; OK
+0000 0002				; OK
+0000 0032				; OK
+0000 0003				; s'appliquer à 87FE donc sur table 4 
+0000 af16				; OK
+0000 0005				; OK changement de logo : on passe au logo OMEGA
+0000 0006				; ok changement de palette
+0000 6928				; ok changement de palette
+0000 0003				; OK
+0000 c274				; OK
+0000 0002				; OK
+0000 0032				; OK
+0000 0001				; OK
+0000 af16				; OK
+0000 0004				; OK changement de logo
+0000 0006				; ok changement de palette
+0000 6908				; ok changement de palette
+0000 0000				; OK FIN
+
+
+OK - 2: table pointée par 87EE :  de 6968 à 80D8 (8198) : positions en X												Omega_logo_table2_6968_8198.bin
+- 3: table pointée par 87F2 : de 8196 à 8280 : increments en X pour la vague										Omega_logo_table3_8196_8280.bin
+OK - 4: table pointée par 87FE : table de AF16 à FD9A : table des lignes pour zoom Y									Omega_logo_table4_AF16_FD9A.bin
+OK - 5: table pointée par 87f6 : $8274 à $870E+ :  : table waves en Y du logo : maxi =$2C								Omega_logo_table5_8274_870E.bin
+
+
+valeurs initiables :
+
+87EE = 6968 		( debut de la table 2 )
+87F2 = 8198			( debut de la table 3 + 2 )
+87FE = AF16 		( debut de la table 4 )
+87F6 = 8276			( debut de la table 5 + 2 )
+
+;-----------------------
+routine avec comme sources:
+tous les 8 pixels:
+	- courbe en Y wave en Y
+à chaque ligne:
+	- courbe en X wave en X
+	- deplacement en X
+	- choix des lignes en Y
+	
+;-----------------------
+chaque logo a 
+
+- 320 pixels vides avant chaque ligne
+- 8 prédécalages, mais 16 positions en X, car movep permet de faire 8 pixels apr 8 pixels ( colonne de 8 pixels )
+
+sur JAG:
+16 x 320*2*66 = 675840 si prédécalages
+
+;--------------------------
+choix des lignes, prémultipliés : par 320 = largeur en octets du logo
+pourquoi pas de prémultipliés sur le choix des lignes de destination ? utilisation de la meme table qu'en X : NON
+
+
+
+	
