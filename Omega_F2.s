@@ -1,13 +1,16 @@
 ; rebuild demo Omega 2 , Swedish New Year 89-90
 ;
 
-; scrolling:
-;	- pointeur en cours sur texte 
-;	- inserer 4 pixels par 4 pixels
-;	- GPU_scrolling_offset_actuel_dans_la_lettre ( 0,4,8,12 ) / boucle à 16
-;	- pointeur sur lettre en cours : GPU_scrolling_pointeur_sur_lettre_en_cours
 
-; - gerer les 2 couleurs : avoir un paramètre de couleur
+
+; scrolling:
+;	OK - pointeur en cours sur texte 
+;	OK - inserer 4 pixels par 4 pixels
+;	OK - GPU_scrolling_offset_actuel_dans_la_lettre ( 0,4,8,12 ) / boucle à 16
+;	OK - pointeur sur lettre en cours : GPU_scrolling_pointeur_sur_lettre_en_cours
+;	OK - ajouter la gestion du choix des lignes en Y sur le scrolling
+
+; OK - gerer les 2 couleurs : avoir un paramètre de couleur
 
 ; logo :
 ; OK - init : copier chaque logo avec une ligne vide avant : chaque ligne fait ensuite 640 octets
@@ -43,9 +46,13 @@ NUMERO_DE_MUSIQUE			.equ		1
 premiere_ligne_a_l_ecran	.equ		49
 CLS_BLITTER					.equ		1
 
-nb_actuel_de_couleurs		.equ		48
+nb_actuel_de_couleurs		.equ		48+16
 
 DEBUG_LOGO					.equ		0					; 1 = freeze le logo
+GPU_TIME					.equ		0					; 1 = view GPU time consumed
+
+numero_premiere_couleur_fonte_ATARI		.equ		$20
+numero_premiere_couleur_fonte_OMEGA		.equ		$30
 
 ; l'original saute 2 lignes en haut du logo
 decalage_debut_utilisation_logo		.equ		640*2
@@ -208,8 +215,9 @@ jesuisenpal:
 	move.w		#801,VI			; stop VI
 
 
+; conversion CLUT partie couleurs format ST
+	bsr			convert_CLUT_ST
 ; init CLUT
-
 	lea			CLUT+2,a1
 	lea			CLUT_RGB,a0
 	move.w		#nb_actuel_de_couleurs-1,d0
@@ -807,27 +815,68 @@ convert_fonte_scrolling__boucle_ligne:
 	move.w	#16-1,d5							; 16 pixels
 	move.l	#15,d4							; mask pour selectionner le pixel
 convert_fonte_scrolling__boucle_16_pixels:
+	moveq	#0,d0
+	moveq	#0,d1
 	move.w	6(a0),d0							; plan 3
 	lsr.w	d4,d0
+	and.w	#%1,d0
 	add.w	d0,d0								; <<1
 	move.w	4(a0),d1							; plan 2
 	lsr.w	d4,d1
+	and.w	#%1,d1
 	or.w	d1,d0
 	add.w	d0,d0								; <<1
 	move.w	2(a0),d1							; plan 1
 	lsr.w	d4,d1
+	and.w	#%1,d1
 	or.w	d1,d0
 	add.w	d0,d0								; <<1
-	move.w	(a0),d1								; plan 0
+	move.w	0(a0),d1								; plan 0
 	lsr.w	d4,d1
+	and.w	#%1,d1
 	or.w	d1,d0
 ; d0 = numéro couleur
 	move.b	d0,(a1)+
 	subq.l	#1,d4
 	dbf		d5,convert_fonte_scrolling__boucle_16_pixels
 	lea		8(a0),a0
-	dbf		d6,convert_fonte_scrolling__boucle_16_pixels
+	dbf		d6,convert_fonte_scrolling__boucle_ligne
 	dbf		d7,convert_fonte_scrolling__boucle_caractere
+	rts
+
+;-------------------------------------
+; des couleurs sont au format ST
+; Bits [0-5] are green, bits [6-10] are blue and bits [11-15] are red.
+convert_CLUT_ST:
+	lea		couleurs_fonte_ATARI,a0	
+	lea		FIN_couleurs_fonte_ATARI,a1
+convert_CLUT_ST_boucle:
+	moveq	#0,d6						; d6 = couleur JAGUAR RGB 16
+	move.w	(a0),d1						; d1=$0777
+; R
+	move.w	d1,d2
+	and.w	#$0700,d2						; D2 = R / 3 bits
+	lsr.w	#8,d2
+	lsl.w	#8,d2
+	lsl.w	#13-8,d2							; bits 13 14 15
+	move.w	d2,d6
+; G
+	move.w	d1,d2
+	and.w	#$0070,d2						; D2 = G / 3 bits
+	lsr.w	#4,d2
+	lsl.w	#3,d2							; bits 3 4 5
+	or.w	d2,d6
+;B
+	move.w	d1,d2
+	and.w	#$0007,d2						; D2 = B / 3 bits
+	;lsr.w	#4,d2
+	lsl.w	#8,d2							; bits 8 9 10
+	or.w	d2,d6
+
+	move.w	d6,(a0)+
+	cmp.l	a1,a0
+	bne.s	convert_CLUT_ST_boucle
+
 	rts
 
 	
@@ -1642,10 +1691,11 @@ GPU_boucle_wait_vsync2:
 
 
 GPU_main_loop:
+		.if		GPU_TIME=1
 		movei	#BG,R26
 		movei	#$8888,R25				; blanc en haut
 		storew	R25,(R26)
-
+		.endif
 
 ;----------------------------------------------
 ; insertion dans l'object list de la zone du scrolling
@@ -1871,10 +1921,11 @@ GPU_clear_zone_logo_waitblit_scrolling:
 
 
 	.endif
+		.if		GPU_TIME=1
 		movei	#BG,R26
 		movei	#$5028,R25				; blanc en haut
 		storew	R25,(R26)
-
+		.endif
 
 		.if		DEBUG_LOGO=0
 
@@ -1943,15 +1994,16 @@ GPU__logo__test_commande_3:
 	jump		(R29)
 	nop	
 GPU__logo__test_commande_4:
+	movei		#GPU__logo__test_commande_5,R27
 	cmpq		#4,R1
-	jr			ne,GPU__logo__test_commande_5
+	jump		ne,(R27)
 	nop
 ; commande = 4 = logo ATARI
 	movei		#GPU_pointeur_sur_data_graph_logo_actuel,R3
 	movei		#table_adresses_logo_ATARI_predecale,R4
 	store		R4,(R3)
 	movei		#GPU_scrolling_offset_palette_actuelle,R5
-	moveq		#0,R6
+	movei		#$20202020,R6
 	store		R6,(R5)
 	
 	jump		(R28)
@@ -1966,7 +2018,7 @@ GPU__logo__test_commande_5:
 	movei		#table_adresses_logo_OMEGA_predecale,R4
 	store		R4,(R3)
 	movei		#GPU_scrolling_offset_palette_actuelle,R5
-	movei		#$20202020,R6
+	movei		#$30303030,R6
 	store		R6,(R5)
 	jump		(R28)
 	nop
@@ -1997,13 +2049,18 @@ GPU_logo_execute_commandes:
 ; commande en cours = 1
 	movei		#pointeur_actuel_sur_table_4_lignes_pour_zoom_Y,R11				; $87FE
 	movei		#134,R2
+	movei		#pointeur_actuel_sur_table_6_lignes_Y_scrolling,R3
+	movei		#26,R4
+	load		(R3),R7
 	load		(R11),R1
+	add			R4,R7
 	movei		#table_4_lignes_pour_zoom_Y+(134*150),R4								; $FD9A		// 150*134
 	add			R2,R1
 	cmp			R4,R1
 	jr			ne,GPU_logo_avance_pointeurs_commande_1__pas_fin_table_4
 	nop
 	movei		#table_4_lignes_pour_zoom_Y,R1
+	movei		#table_6_lignes_Y_scrolling,R7
 GPU_logo_avance_pointeurs_commande_1__pas_fin_table_4:
 ; test par rapport à $87DC = GPU__logo__pointeur_sur_table4_pour_raz_de_commandes
 	movei		#GPU__logo__pointeur_sur_table4_pour_raz_de_commandes,R12
@@ -2015,6 +2072,7 @@ GPU_logo_avance_pointeurs_commande_1__pas_fin_table_4:
 	store		R6,(R10)			; update $87E0
 GPU_logo_avance_pointeurs_commande_1__pas_arrive_a_GPU__logo__pointeur_sur_table4_pour_raz_de_commandes:
 	store		R1,(R11)
+	store		R7,(R3)
 
 
 
@@ -2033,13 +2091,18 @@ GPU_logo_avance_pointeurs_commande_2:
 ; commande en cours = 2
 	movei		#pointeur_actuel_sur_table_4_lignes_pour_zoom_Y,R11				; $87FE
 	movei		#134,R2
+	movei		#pointeur_actuel_sur_table_6_lignes_Y_scrolling,R3
+	movei		#26,R4
+	load		(R3),R7
 	load		(R11),R1
+	sub			R4,R7
 	movei		#table_4_lignes_pour_zoom_Y-134,R4								; $FD9A		// 150*134
 	sub			R2,R1				; -134
 	cmp			R4,R1
 	jr			ne,GPU_logo_avance_pointeurs_commande_2__pas_fin_table_4
 	nop
 	movei		#table_4_lignes_pour_zoom_Y+(134*149),R1					; $FD14 = $FD9A - 134
+	movei		#table_6_lignes_Y_scrolling+$F22,R7
 GPU_logo_avance_pointeurs_commande_2__pas_fin_table_4:
 ; test par rapport à $87DC = GPU__logo__pointeur_sur_table4_pour_raz_de_commandes
 	movei		#GPU__logo__pointeur_sur_table4_pour_raz_de_commandes,R12
@@ -2051,6 +2114,7 @@ GPU_logo_avance_pointeurs_commande_2__pas_fin_table_4:
 	store		R6,(R10)			; update $87E0 = 0
 GPU_logo_avance_pointeurs_commande_2__pas_arrive_a_GPU__logo__pointeur_sur_table4_pour_raz_de_commandes:
 	store		R1,(R11)
+	store		R7,(R3)
 
 
 
@@ -2122,10 +2186,11 @@ GPU_gestion_pointeurs_logo__pas_de_bouclage_sur_table3:
 
 		.endif
 
+		.if		GPU_TIME=1
 		movei	#BG,R26
 		movei	#$FFFF,R25				; blanc en haut
 		storew	R25,(R26)
-
+		.endif
 
 ;----------------------------------------------
 ; routine affichae du logo, 8 pixels par 8 pixels
@@ -2278,13 +2343,110 @@ GPU_logo_Omega_boucle_8_pixels:
 GPU_avance_pointeur_Y_scrolling__pas_de_bouclage:
 	store	R0,(R1)
 	
+; --------------
+; gestion du scrolling
+; F034A6
+	movei	#GPU_scrolling_offset_actuel_dans_la_lettre,R10					; ( 0,4,8,12 ) / boucle à 16
+	movei	#GPU_scrolling_pas_nouvelle_lettre,R27
+	load	(R10),R0
+	addq	#4,R0
+	cmpq	#15,R0
+	jump	mi,(R27)
+	nop
+; lire une nouvelle lettre
+	movei	#GPU_scrolling_pointeur_sur_texte,R17
+	load	(R17),R16
+	addq	#1,R16
+	loadb	(R16),R4
+	movei	#GPU_scrolling_pointeur_sur_lettre_en_cours,R8
+	cmpq	#1,R4
+	jr		ne,GPU_scrolling_pas_fin_du_scrolling
+	nop
+	movei	#texte_scrolling,R16
+	loadb	(R16),R4
+GPU_scrolling_pas_fin_du_scrolling:
+	store	R16,(R17)
+
+; espace ?
+	movei	#32,R9
+	movei	#GPU_scrolling_pas_espace,R27
+	cmp		R9,R4
+	jump	ne,(R27)
+	nop
+	movei	#bascule_changement_couleur_fonte_violet_dore,R20
+	movei	#GPU_scrolling_recolle_espace,R27
+	load	(R20),R21
+	movei	#espace_256_couleurs,R4
+	not		R21
+	store	R21,(R20)
+	jump	(R27)
+	nop
+
+GPU_scrolling_pas_espace:
+; R4 = nouvelle lettre
+	movei	#65,R5			; ="A"
+	movei	#(13*16),R6					; 1 lettre = 13 lignes * 16 pixels
+	movei	#fonte_256_couleurs,R7
+	sub		R5,R4			; -65
+	mult	R6,R4
+	add		R7,R4
+GPU_scrolling_recolle_espace:
+	moveq	#0,R0
+	store	R4,(R8)
 
 
+GPU_scrolling_pas_nouvelle_lettre:
+	movei	#320,R8
+	movei	#GPU_scrolling_pointeur_sur_position_actuelle_dans_buffer_double__scrolling,R13
+	store	R0,(R10)
+	load	(R13),R14			; R14 = adresse actuelle buffer zone scrolling double longueur / buffer_scrolling_double_largeur
+	movei	#GPU_scrolling_pointeur_sur_lettre_en_cours,R11
+	move	R14,R16
+	add		R8,R14				; +320
+	add		R8,R14				; +640 = premiere ligne = noire
 
+	move	R14,R15
+	load	(R11),R12			; R12 = data graph lettre en cours
+	add		R0,R12
+	add		R8,R15				; +320 = deuxieme partie du double buffer
+	
+; copie 4 pixels sur 13 lignes
+	moveq	#13,R1
+	add		R8,R8				; R8=640
 
+; check couleur alternative, changement a chaque espace
+	movei	#bascule_changement_couleur_fonte_violet_dore,R20
+	movei	#$FFFFFFFF,R22
+	load	(R20),R21
+	cmpq	#0,R21
+	jr		eq, GPU_scrolling_pas_nouvelle_lettre__pas_couleurs_du_bas_de_la_palette
+	
+	movei	#$F7F7F7F7,R22
+GPU_scrolling_pas_nouvelle_lettre__pas_couleurs_du_bas_de_la_palette:
+
+GPU_scrolling_pas_nouvelle_lettre__boucle_copie_colonne:
+	load	(R12),R0			; 4 pixels
+	and		R22,R0
+	store	R0,(R14)
+	addq	#16,R12				; ligne suivante sur la fonte +16
+	store	R0,(R15)
+	add		R8,R14				; ligne suivante sur la zone buffer scrolling +640
+	add		R8,R15				; ligne suivante sur la zone buffer scrolling +640 - deuxieme partie du buffer
+	subq	#1,R1
+	jr		ne,GPU_scrolling_pas_nouvelle_lettre__boucle_copie_colonne
+	nop
+
+	addq	#4,R16
+	movei	#buffer_scrolling_double_largeur+320,R17
+	cmp		R17,R16
+	jr		ne,GPU_scrolling_pas_bouclage_double_buffer
+	nop
+	movei	#buffer_scrolling_double_largeur,R16
+GPU_scrolling_pas_bouclage_double_buffer:
+	store	R16,(R13)
 
 ;----------------------------------------------
-; routine affichae du scrolling, 16 pixels par 16 pixels
+; routine affichage du scrolling, 16 pixels par 16 pixels
 ; R0=tmp
 ; R1=tmp
 ; R2 = 
@@ -2306,10 +2468,10 @@ GPU_avance_pointeur_Y_scrolling__pas_de_bouclage:
 ; R18 = 
 ; R19 = 
 ; ------
-; R20 = 
-; R21 = 
-; R22 = 
-; R23 = 
+; R20 = dest 1
+; R21 = dest 2
+; R22 = pointeur_actuel_sur_table_6_lignes_Y_scrolling
+; R23 = pointeur sur buffer de scrolling
 ; R24 = 
 ; R25 = compteur de lignes à afficher ( 13 )
 ; R26 = compteur boucles 16 pixels
@@ -2319,7 +2481,9 @@ GPU_avance_pointeur_Y_scrolling__pas_de_bouclage:
 ; ------
 ; R30 =
 
+	movei	#pointeur_actuel_sur_table_6_lignes_Y_scrolling,R0
 	movei	#GPU_scrolling_offset_palette_actuelle,R20
+	load	(R0),R22
 	movei	#GPU_scrolling__boucle_16_pixels,R27
 	movei	#GPU_scrolling__boucle_lignes,R28
 	load	(R20),R7
@@ -2332,9 +2496,9 @@ GPU_avance_pointeur_Y_scrolling__pas_de_bouclage:
 	load	(R1),R14
 
 ; source
-	movei	#buffer_scrolling_double_largeur,R10
-	move	R10,R11
-	addq	#4,R11
+	move	R16,R23
+	;movei	#GPU_scrolling_pointeur_sur_position_actuelle_dans_buffer_double__scrolling,
+	;movei	#buffer_scrolling_double_largeur,R10
 	
 ; dest
 	movei	#GPU_pointeur_sur_zone_scrolling_a_modifier,R0
@@ -2347,6 +2511,18 @@ GPU_scrolling__boucle_lignes:
 		
 	move	R14,R13
 	move	R9,R26
+
+; pointeur_actuel_sur_table_6_lignes_Y_scrolling
+	loadw	(R22),R0
+	move	R23,R10
+	add		R0,R0		; * 2
+	addq	#2,R22
+	add		R0,R0		; * 4 : 160*4 = 640
+	
+	add		R0,R10
+	
+	move	R10,R11
+	addq	#4,R11
 	
 GPU_scrolling__boucle_16_pixels:
 	loadw	(R13),R2
@@ -2376,19 +2552,19 @@ GPU_scrolling__boucle_16_pixels:
 	nop
 
 ; next line
-	add		R8,R10
-	add		R8,R11
+	;add		R8,R10
+	;add		R8,R11
 
 	subq	#1,R25
 	jump	ne,(R28)
 	nop
 
 
-
+		.if		GPU_TIME=1
 		movei	#BG,R26
 		movei	#$0000,R25				; blanc en haut
 		storew	R25,(R26)
-
+		.endif
 
 ;----------------------------------------------
 ; incremente compteur de VBL au GPU
@@ -2513,6 +2689,7 @@ GPU_pointeur_sur_zone_logo_a_afficher:		dc.l		zone_logo_2
 GPU_pointeur_sur_zone_scrolling_a_modifier:		dc.l		zone_scrolling_1
 GPU_pointeur_sur_zone_scrolling_a_afficher:		dc.l		zone_scrolling_2
 
+bascule_changement_couleur_fonte_violet_dore:					dc.l		-1						; fonte = Violet / doré    //     rouge/vert
 
 
 pointeur_actuel_sur_table_2_positions_en_X:						dc.l		table_2_positions_en_X					; $87EE
@@ -2520,9 +2697,15 @@ pointeur_actuel_sur_table_3_increments_en_X_pour_vague:			dc.l		table_3_incremen
 pointeur_actuel_sur_table_4_lignes_pour_zoom_Y:					dc.l		table_4_lignes_pour_zoom_Y				; $87FE
 pointeur_actuel_sur_table_5_waves_en_Y:							dc.l		table_5_waves_en_Y+2					; $87F6
 
-GPU_pointeur_actuel_sur_table_Y_scrolling:						dc.l		table_Y_scrolling						; $1C66=L0044 = offset actuel sur la courbe des Y
-GPU_scrolling_offset_palette_actuelle:							dc.l		$0							; $00000000 ou $20202020
+pointeur_actuel_sur_table_6_lignes_Y_scrolling:					dc.l		table_6_lignes_Y_scrolling
 
+GPU_pointeur_actuel_sur_table_Y_scrolling:						dc.l		table_Y_scrolling						; $1C66=L0044 = offset actuel sur la courbe des Y
+GPU_scrolling_offset_palette_actuelle:							dc.l		$20202020							; $20202020 ou $30303030
+
+GPU_scrolling_offset_actuel_dans_la_lettre:		dc.l		12
+GPU_scrolling_pointeur_sur_lettre_en_cours:		dc.l		fonte_256_couleurs
+GPU_scrolling_pointeur_sur_position_actuelle_dans_buffer_double__scrolling:			dc.l	buffer_scrolling_double_largeur
+GPU_scrolling_pointeur_sur_texte:				dc.l		texte_scrolling-1
 
 GPU_pointeur_sur_data_graph_logo_actuel:						dc.l		table_adresses_logo_ATARI_predecale
 
@@ -4185,25 +4368,48 @@ CLUT_RGB:
         dc.w    $8000
         dc.w    $6000
 		dc.w	$0000				; 31
-; 15 couleurs pour logo OMEGA
-		dc.w	$0000				; 32
-        dc.w    $0018				; 33
-        dc.w    $0028
-        dc.w    $8438
-        dc.w    $E738
-        dc.w    $A538				; 37
-        dc.w    $E338
-        dc.w    $E020
-        dc.w    $C000
-        dc.w    $0038				; 
-        dc.w    $E010
-        dc.w    $E030
-        dc.w    $6338
-        dc.w    $0020				; 45
-        dc.w    $8000
-        dc.w    $6000
-		dc.w	$0000				; 48
+; 15 couleurs pour la fonte en couleurs du logo ATARI
+; debut en 32
+couleurs_fonte_ATARI:
+; violet
+		dc.w	$0000				; 32		0 noir
+		dc.w	$0103				; 33		1 v
+		dc.w	$0204				; 34		2 v
+		dc.w	$0305				; 35		3 v
+		dc.w	$0406				; 36		4 v
+		dc.w	$0527				; 37		5 v
+		dc.w	$0647				; 38		6 v
+		dc.w	$0757				; 39		7 v
 		
+		dc.w	$0310				; 40		8 d
+		dc.w	$0420				; 41		9 d
+		dc.w	$0530				; 42		10 d
+		dc.w	$0640				; 43		11 d
+		dc.w	$0750				; 44		12 d
+		dc.w	$0760				; 45		13 d
+		dc.w	$0770				; 46		14 d
+		dc.w	$0777				; 47		15 ?
+couleurs_fonte_OMEGA:
+		dc.w	$0000				;48
+		dc.w	$0300
+		dc.w	$0400 
+		dc.w	$0600
+		dc.w	$0720 
+		dc.w	$0740
+		dc.w	$0760 
+		dc.w	$0773
+		dc.w	$0030 
+		dc.w	$0040
+		dc.w	$0050 
+		dc.w	$0070
+		dc.w	$0373 
+		dc.w	$0474
+		dc.w	$0575 
+		dc.w	$0777
+
+
+
+FIN_couleurs_fonte_ATARI:
 
 	.dphrase
 logos_originaux:
@@ -4267,6 +4473,11 @@ table_5_waves_en_Y:
 FIN_table_5_waves_en_Y:
 		.dphrase
 
+; table pour choisir les lignes en Y sur le scrolling
+table_6_lignes_Y_scrolling:
+		.incbin		"Omega_table_choix_lignes_Y_scrolling.bin"
+FIN_table_6_lignes_Y_scrolling:
+		.dphrase
 
 
 	.phrase
@@ -4418,6 +4629,10 @@ table_adresses_logo_OMEGA_predecale:
 		dc.l		buffer_logos_predecales_OMEGA_2+decalage_debut_utilisation_logo
 		dc.l		buffer_logos_predecales_OMEGA_3+decalage_debut_utilisation_logo
 
+fonte_originale:
+		.incbin		"OMEGA_fonte_originale.bin"
+		.phrase
+
 texte_scrolling:
 		DC.B      "JIPPIDIP"
 		DC.B      "PIDOOOO_"
@@ -4466,18 +4681,23 @@ texte_scrolling:
 		DC.B      "WILL WRA"
 		DC.B      "P]]]]   "
 		DC.B      "        "
-		DC.B      "      ",$FF,$00
+		DC.B      "      ",1
 		.phrase
 
+	.dphrase
+	
+	.if		1=0
 buffer_scrolling_double_largeur:		;ds.b		13*320*2
+couleuredz	.equ		0
 		.rept		13
 			.rept	80
-				dc.b	01,01,00,00
+				dc.b	couleuredz,couleuredz,couleuredz,couleuredz
 			.endr
 			.rept	80
-				dc.b	02,02,00,00
+				dc.b	couleuredz,couleuredz,couleuredz,couleuredz
 			.endr
 		.endr
+	.endif
 
 
 		.BSS
@@ -4523,12 +4743,14 @@ buffer_logos_predecales_OMEGA_0:		ds.b		67*640
 buffer_logos_predecales_OMEGA_1:		ds.b		67*640
 buffer_logos_predecales_OMEGA_2:		ds.b		67*640
 buffer_logos_predecales_OMEGA_3:		ds.b		67*640
+			ds.b		640*10
 
-; 13 lignes en hauteur
-;buffer_scrolling_double_largeur:		ds.b		13*320*2
+; 13+1 lignes en hauteur
+buffer_scrolling_double_largeur:		ds.b		14*320*2
 
             .dphrase
 fonte_256_couleurs:						ds.b		38*13*16		; 38 caracteres * 13 lignes * 16 pixels
+espace_256_couleurs:					ds.b		13*16
 ; zones ecran
 ; en cours de modif & affichée
             .dphrase
