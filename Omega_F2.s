@@ -1,14 +1,29 @@
 ; rebuild demo Omega 2 , Swedish New Year 89-90
+;
+
+; scrolling:
+;	- pointeur en cours sur texte 
+;	- inserer 4 pixels par 4 pixels
+;	- GPU_scrolling_offset_actuel_dans_la_lettre ( 0,4,8,12 ) / boucle à 16
+;	- pointeur sur lettre en cours : GPU_scrolling_pointeur_sur_lettre_en_cours
+
+; - gerer les 2 couleurs : avoir un paramètre de couleur
 
 ; logo :
 ; OK - init : copier chaque logo avec une ligne vide avant : chaque ligne fait ensuite 640 octets
 ; OK - init : multiplier la "table des lignes pour zoom Y" par 640
 ; OK - init : multiplier la "table waves en Y du logo" par 320 ( s'applique à la destination ) 
 ; OK - init : convertir table_2_positions_en_X : diviser par 320, multipler par 640, ajouter le reste de la division
+
+
 ; OK - switcher les pointeurs sur les buffers de zone d'affichage du logo
 ; OK - creer un sprite dans l'OL en 256 couleurs pour la zone de logo en cours
-; 
+; OK - recalculer les entrées de la table 1 = commandes 
+; OK - gestion des commandes à chaque frame
 ; - blitter pour effacer la zone du logo en cours
+; OK - gestion des pointeurs à chaque frame
+; OK - gestion deplacement horizontal 
+; - voir si espace necessaire entre les 2 logos etendus
 
 ; scrolling:
 ; - switcher les pointeurs sur les buffers de zone d'affichage du scrolling
@@ -16,7 +31,7 @@
 
 ;;------------------
 ; OL+48 = debut des sprites
-; phrase = 8 octets : table de couleur 8 octets par ligne
+; phrase = 8 octets
 ;
 
 
@@ -26,10 +41,14 @@
 NUMERO_DE_MUSIQUE			.equ		1
 
 premiere_ligne_a_l_ecran	.equ		49
+CLS_BLITTER					.equ		1
 
+nb_actuel_de_couleurs		.equ		48
 
-nb_actuel_de_couleurs		.equ		30
+DEBUG_LOGO					.equ		0					; 1 = freeze le logo
 
+; l'original saute 2 lignes en haut du logo
+decalage_debut_utilisation_logo		.equ		640*2
 
 
 ; ------------------
@@ -233,8 +252,11 @@ copie_clut:
 	bsr			YM_init_coso
 
 ; init tables logo
+	nop
 	bsr		init_tables_logo_Omega_F2
-
+	nop
+	bsr		init_tables_scrolling
+	bsr		convert_fonte_scrolling
 
 ; launch GPU
 
@@ -271,19 +293,22 @@ copie_clut:
 	and.w   #$f8ff,sr
 	.endif
 
-; test, motif sur zone_logo_1 et zone_logo_2
-	lea		zone_logo_1+50,a1
-	lea		zone_logo_2+50,a2
-	
+
+	.if		1=0
+; test, motif sur zones de scrolling
+	lea		zone_scrolling_1+50,a1
+	lea		zone_scrolling_2+50,a2
 	move.w	#50,d0
 	moveq	#1,d1
+	moveq	#2,d2
 
 fill_test_motif:
 	move.b	d1,(a1)
-	move.b	d1,(a2)
+	move.b	d2,(a2)
 	lea		320(a1),a1
 	lea		320(a2),a2
 	dbf		d0,fill_test_motif
+	.endif
 
 
 
@@ -601,6 +626,23 @@ preparation_OL:
 
 	rts
 
+
+; copie du logo en décalé
+init_tables_logo_Omega_F2__copie_logo:
+; A0 = source
+; A1 = dest
+	move.l	#66*640,d1
+	move.l	a0,a2
+	add.l	d1,a2
+
+init_tables_logo_Omega_F2__copie_logo__boucle:
+	move.b	(a0)+,(a1)+
+	cmp.l	a2,a0
+	bne.s	init_tables_logo_Omega_F2__copie_logo__boucle
+	rts
+	
+
+
 ;-------------------------------------
 ;	routines gestion du logo
 ;-------------------------------------
@@ -608,26 +650,83 @@ preparation_OL:
 ; - init : multiplier la "table des lignes pour zoom Y" par 640
 ; - init : multiplier la "table waves en Y du logo" par 320 ( s'applique à la destination ) 
 init_tables_logo_Omega_F2:
-; ajout d'espace avant chaque ligne du logo
-; 66 lignes *2 
 
+
+; ajout d'espace avant chaque ligne du logo ATARI
+; 66 lignes *2 
 	lea		logo_ATARI,a0
-	lea		buffer_logo_ATARI_etendu,a1
-	move.w	#(66*2)-1,d2
-	
+	lea		buffer_logos_predecales_ATARI_0,a1
+	move.w	#66-1,d2						; 66 lignes
+
+; insertion 320 octets vide a gauche
+init_tables_logo_atari_F2__boucle_une_ligne:	
+	move.w	#(320/4)-1,d1
+	moveq	#0,d0
+init_tables_logo_atari_F2__ajoute_espace_debut_ligne:	
+	move.l	d0,(a1)+
+	dbf		d1,init_tables_logo_atari_F2__ajoute_espace_debut_ligne
+; copie des octets du graph
+	move.w	#(320/4)-1,d1
+init_tables_logo_atari_F2__copie_ligne_logo:
+	move.l	(a0)+,(a1)+
+	dbf		d1,init_tables_logo_atari_F2__copie_ligne_logo
+	dbf		d2,init_tables_logo_atari_F2__boucle_une_ligne
+
+
+; copie de predecalage 0 dans predecalage 1
+	lea		buffer_logos_predecales_ATARI_0,a0
+	lea		buffer_logos_predecales_ATARI_1+1,a1
+	bsr		init_tables_logo_Omega_F2__copie_logo
+; copie de predecalage 0 dans predecalage 2
+	lea		buffer_logos_predecales_ATARI_0,a0
+	lea		buffer_logos_predecales_ATARI_2+2,a1
+	bsr		init_tables_logo_Omega_F2__copie_logo
+; copie de predecalage 0 dans predecalage 3
+	lea		buffer_logos_predecales_ATARI_0,a0
+	lea		buffer_logos_predecales_ATARI_3+3,a1
+	bsr		init_tables_logo_Omega_F2__copie_logo
+
+
+
+; ----------- logo OMEGA
+; ajout d'espace avant chaque ligne du logo OMEGA
+; 66 lignes *2 
+	lea		logo_OMEGA,a0
+	lea		buffer_logos_predecales_OMEGA_0,a1
+	move.w	#66-1,d2						; 66 lignes
+
+; insertion 320 octets vide a gauche
 init_tables_logo_Omega_F2__boucle_une_ligne:	
 	move.w	#(320/4)-1,d1
 	moveq	#0,d0
 init_tables_logo_Omega_F2__ajoute_espace_debut_ligne:	
 	move.l	d0,(a1)+
 	dbf		d1,init_tables_logo_Omega_F2__ajoute_espace_debut_ligne
-
+; copie des octets du graph
 	move.w	#(320/4)-1,d1
 init_tables_logo_Omega_F2__copie_ligne_logo:
 	move.l	(a0)+,(a1)+
 	dbf		d1,init_tables_logo_Omega_F2__copie_ligne_logo
-
 	dbf		d2,init_tables_logo_Omega_F2__boucle_une_ligne
+
+
+; copie de predecalage 0 dans predecalage 1
+	lea		buffer_logos_predecales_OMEGA_0,a0
+	lea		buffer_logos_predecales_OMEGA_1+1,a1
+	bsr		init_tables_logo_Omega_F2__copie_logo
+; copie de predecalage 0 dans predecalage 2
+	lea		buffer_logos_predecales_OMEGA_0,a0
+	lea		buffer_logos_predecales_OMEGA_2+2,a1
+	bsr		init_tables_logo_Omega_F2__copie_logo
+; copie de predecalage 0 dans predecalage 3
+	lea		buffer_logos_predecales_OMEGA_0,a0
+	lea		buffer_logos_predecales_OMEGA_3+3,a1
+	bsr		init_tables_logo_Omega_F2__copie_logo
+
+
+
+	
+	
 
 ; multiplier table_4_lignes_pour_zoom_Y par 640 ( source)
 ; la table est deja multipliée par 160*2=320
@@ -654,6 +753,8 @@ init_tables_logo_Omega_F2__multiplie_par_320_wave_Y:
 	cmp.l	a1,a0
 	blt.s	init_tables_logo_Omega_F2__multiplie_par_320_wave_Y
 
+; inutile, ce sont des X, pas des offsets mémoire
+	.if		1=0
 ; convertir table_2_positions_en_X : diviser par 320, multipler par 640, ajouter le reste de la division
 	lea		table_2_positions_en_X,a0
 	lea		FIN_table_2_positions_en_X,a1
@@ -672,10 +773,63 @@ init_tables_logo_Omega_F2__table2:
 	move.w	d0,(a0)+
 	cmp.l	a1,a0
 	blt.s	init_tables_logo_Omega_F2__table2
-	
+	.endif
 	
 	rts
+
+
+;-------------------------------------
+; init table Y scrolling : multiplie par 320
+init_tables_scrolling:
+
+	lea		table_Y_scrolling,a0
+	lea		FIN_table_Y_scrolling,a3
+	move.l	a0,a1
+init_tables_scrolling__boucle:
+	move.w	(a0)+,d1
+	ext.l	d1
+	mulu	#320,d1
+	move.w	d1,(a1)+
+	cmp.l	a0,a3
+	bne.s	init_tables_scrolling__boucle
+	rts
 	
+;-------------------------------------
+; conversion de la fonte en 256 couleurs	
+; 38 caracteres * 13 lignes * 16 pixels
+convert_fonte_scrolling:
+	lea		fonte_originale,a0
+	lea		fonte_256_couleurs,a1
+	move.w	#38-1,d7							; 38 caracteres
+convert_fonte_scrolling__boucle_caractere:
+	move.w	#13-1,d6							; 13 lignes
+convert_fonte_scrolling__boucle_ligne:	
+	move.w	#16-1,d5							; 16 pixels
+	move.l	#15,d4							; mask pour selectionner le pixel
+convert_fonte_scrolling__boucle_16_pixels:
+	move.w	6(a0),d0							; plan 3
+	lsr.w	d4,d0
+	add.w	d0,d0								; <<1
+	move.w	4(a0),d1							; plan 2
+	lsr.w	d4,d1
+	or.w	d1,d0
+	add.w	d0,d0								; <<1
+	move.w	2(a0),d1							; plan 1
+	lsr.w	d4,d1
+	or.w	d1,d0
+	add.w	d0,d0								; <<1
+	move.w	(a0),d1								; plan 0
+	lsr.w	d4,d1
+	or.w	d1,d0
+; d0 = numéro couleur
+	move.b	d0,(a1)+
+	subq.l	#1,d4
+	dbf		d5,convert_fonte_scrolling__boucle_16_pixels
+	lea		8(a0),a0
+	dbf		d6,convert_fonte_scrolling__boucle_16_pixels
+	dbf		d7,convert_fonte_scrolling__boucle_caractere
+	rts
+
 	
 ;-------------------------------------
 ;
@@ -1488,6 +1642,70 @@ GPU_boucle_wait_vsync2:
 
 
 GPU_main_loop:
+		movei	#BG,R26
+		movei	#$8888,R25				; blanc en haut
+		storew	R25,(R26)
+
+
+;----------------------------------------------
+; insertion dans l'object list de la zone du scrolling
+;----------------------------------------------
+		movei	#GPU_pointeur_object_list_a_modifier,R20
+		movei	#GPU_pointeur_sur_zone_scrolling_a_modifier,R21
+		movei	#GPU_premiere_ligne,R25
+		load	(R20),R18			; R18 = pointeur sur OL
+		load	(R21),R13			; R13=data
+		load	(R25),R9
+		movei	#(3<<12)+(1<<15)+((320/8)<<18)+(%1000<<28),R2		; 4 bits de iwidth << 28		; depth=3  / Pitch=1 / DWIDTH=(320/8) / IWIDTH=  : 3<<12 + 1<<15 + 40<<18 + 40<<28 : $4000 + $10000000
+		
+		
+
+		;movei	#$8140C000,R2		; depth=4  / Pitch=1 / DWIDTH=80 / IWIDTH=8  : 4<<12 + 1<<15 + 80<<18 + 8<<28
+		;movei	#$8280C000,R2		; depth=4  / Pitch=1 / DWIDTH=160 / IWIDTH=8  : 4<<12 + 1<<15 + 160<<18 + 8<<28 : $4000 + $8000 + $2800000 + $80000000
+
+		;movei	#$10004000,R2		; depth=4  / Pitch=0 / DWIDTH=0 / IWIDTH=1  : 4<<12 + 0<<15 + 0<<18 + 1<<28 : $4000 + $10000000
+
+		; la suite de IWIDTH va sur R4
+		
+		addq	#32,R18				; OL + 32
+		shrq	#1,R9
+		movei	#(1<<15)+(%0010),R4		; TRANS = 1 ( <<15 ) + 6 bits de iwidth			(5 = 320 pixels)
+		addq	#16,R18				; OL + 16 = +48
+
+		movei	#48,R12				; R12=Y
+		movei	#0,R11				; R11=X
+		;movei	#motif_raster__data,R13			; R13=data
+		
+		add		R9,R12				; Y + ligne du haut/1ere ligne
+		sharq	#3,R13				; DATA sur phrase
+		movei	#(83+13),R14				; R14=height = 83+13 lignes
+		shlq	#3+1,R12			; Ypos * 2 << 3
+		move	R18,R17				; R17=LINK
+		shlq	#14,R14				; height << 14
+		addq	#16,R17				; R17=LINK
+		or		R14,R12				; R12 = Height  |   YPos   |000|
+		sharq	#3,R17				; LINK sur phrase
+		move	R17,R16				; R16=LINK pour 2eme mot
+		shlq	#11,R13				; decalage DATA
+		sharq	#8,R17				; R17=LINK pour 1er mot
+
+		or		R17,R13				; 1er mot : LINK + data
+		store	R13,(R18)				; store 1er mot
+		shlq	#24,R16				; R16=LINK pour 2eme mot
+		addq	#4,R18
+		or		R16,R12				; Link-address    |   Height  |   YPos   |000|
+		store	R12,(R18)				; store 2eme mot
+		
+		move	R2,R1		
+		addq	#4,R18
+		move	R4,R3			; TRANS=1
+		or		R11,R1				; + X
+		store	R3,(R18)
+		addq	#4,R18
+		store	R1,(R18)
+		addq	#4,R18
+
+
 
 ;----------------------------------------------
 ; insertion dans l'object list de la zone du logo
@@ -1536,10 +1754,10 @@ GPU_main_loop:
 ; phrase = 64 bits = 8 octets
 
 ; R21 = pointeur raster
-		movei	#GPU_pointeur_object_list_a_modifier,R20
-		movei	#GPU_pointeur_sur_zone_logo_a_afficher,R21
+		;movei	#GPU_pointeur_object_list_a_modifier,R20
+		movei	#GPU_pointeur_sur_zone_logo_a_modifier,R21
 		movei	#GPU_premiere_ligne,R25
-		load	(R20),R18			; R18 = pointeur sur OL
+		;load	(R20),R18			; R18 = pointeur sur OL
 		load	(R21),R13			; R13=data
 		load	(R25),R9
 		movei	#(3<<12)+(1<<15)+((320/8)<<18)+(%1000<<28),R2		; 4 bits de iwidth << 28		; depth=3  / Pitch=1 / DWIDTH=(320/8) / IWIDTH=  : 3<<12 + 1<<15 + 40<<18 + 40<<28 : $4000 + $10000000
@@ -1553,10 +1771,10 @@ GPU_main_loop:
 
 		; la suite de IWIDTH va sur R4
 		
-		addq	#32,R18				; OL + 32
+		;addq	#32,R18				; OL + 32
 		shrq	#1,R9
 		movei	#(1<<15)+(%0010),R4		; TRANS = 1 ( <<15 ) + 6 bits de iwidth			(5 = 320 pixels)
-		addq	#16,R18				; OL + 16 = +48
+		;addq	#16,R18				; OL + 16 = +48
 
 		movei	#0,R12				; R12=Y
 		movei	#0,R11				; R11=X
@@ -1599,6 +1817,66 @@ GPU_main_loop:
 		addq	#4,R18
 		store	R16,(R18)
 
+
+;----------------------------------------------
+; efface au blitter
+;----------------------------------------------
+; il faut effacer 320*(62+44) octets = 33920
+
+	.if			CLS_BLITTER=1
+	movei		#GPU_pointeur_sur_zone_logo_a_modifier,R10
+	movei		#A1_BASE,R14
+	moveq		#0,R0
+	move		R14,R15
+	load		(R10),R1					; R1 = zone a effacer
+	movei		#PITCH1|PIXEL16|WID768|XADDPHR,R2
+	store		R0,(R14+3)					; A1_PIXEL								F0220C				+3
+	store		R0,(R15+$1A)				; B_PATD								F02268				+1A
+	movei		#$00010000+(33920/2),R3
+	store		R2,(R15+1)					; A1_FLAGS								F02204				+1
+	store		R1,(R14)
+	store		R0,(R15+$1B)				; B_PATD+4								F02268				+1A
+	movei		#PATDSEL|UPDA1,R4
+	store		R3,(R14+$0F)				; B_COUNT								F0223C				+0F
+	store		R4,(R15+$0E)				; B_CMD									F02238				+0E
+
+GPU_clear_zone_logo_waitblit:
+	load		(r14+$0E), r0			; Read back blit status
+	btst		#0, r0				; See if bit 0 is set
+	jr			EQ,GPU_clear_zone_logo_waitblit
+	nop
+
+; efface zone du scrolling
+	movei		#GPU_pointeur_sur_zone_scrolling_a_modifier,R10
+	movei		#A1_BASE,R14
+	moveq		#0,R0
+	move		R14,R15
+	load		(R10),R1					; R1 = zone a effacer
+	movei		#PITCH1|PIXEL16|WID768|XADDPHR,R2
+	store		R0,(R14+3)					; A1_PIXEL								F0220C				+3
+	store		R0,(R15+$1A)				; B_PATD								F02268				+1A
+	movei		#$00010000+(30720/2),R3
+	store		R2,(R15+1)					; A1_FLAGS								F02204				+1
+	store		R1,(R14)
+	store		R0,(R15+$1B)				; B_PATD+4								F02268				+1A
+	movei		#PATDSEL|UPDA1,R4
+	store		R3,(R14+$0F)				; B_COUNT								F0223C				+0F
+	store		R4,(R15+$0E)				; B_CMD									F02238				+0E
+
+GPU_clear_zone_logo_waitblit_scrolling:
+	load		(r14+$0E), r0			; Read back blit status
+	btst		#0, r0				; See if bit 0 is set
+	jr			EQ,GPU_clear_zone_logo_waitblit_scrolling
+	nop
+
+
+	.endif
+		movei	#BG,R26
+		movei	#$5028,R25				; blanc en haut
+		storew	R25,(R26)
+
+
+		.if		DEBUG_LOGO=0
 
 ;----------------------------------------------
 ; gere les commandes du logo
@@ -1670,18 +1948,26 @@ GPU__logo__test_commande_4:
 	nop
 ; commande = 4 = logo ATARI
 	movei		#GPU_pointeur_sur_data_graph_logo_actuel,R3
-	movei		#buffer_logo_ATARI_etendu,R4
+	movei		#table_adresses_logo_ATARI_predecale,R4
 	store		R4,(R3)
+	movei		#GPU_scrolling_offset_palette_actuelle,R5
+	moveq		#0,R6
+	store		R6,(R5)
+	
 	jump		(R28)
 	nop
 GPU__logo__test_commande_5:
+	movei		#GPU__logo__test_commande_6,R27
 	cmpq		#5,R1
-	jr			ne,GPU__logo__test_commande_6
+	jump		ne,(R27)
 	nop
 ; commande = 5 = logo OMEGA
 	movei		#GPU_pointeur_sur_data_graph_logo_actuel,R3
-	movei		#buffer_logo_OMEGA_etendu,R4
+	movei		#table_adresses_logo_OMEGA_predecale,R4
 	store		R4,(R3)
+	movei		#GPU_scrolling_offset_palette_actuelle,R5
+	movei		#$20202020,R6
+	store		R6,(R5)
 	jump		(R28)
 	nop
 GPU__logo__test_commande_6:
@@ -1691,11 +1977,123 @@ GPU__logo__test_commande_6:
 
 GPU_logo_fin_test_des_commandes:
 	store		R12,(R11)			; update GPU__logo__pointeur_sur_table_des_commandes
+
+
+
 	
 ;----------------------------------------------
-; avance tous les pointeurs du logo
+; avance tous les pointeurs du logo suivant la valeur de la commande
 GPU_logo_execute_commandes:
 
+;--------------
+; - si $87E0 / GPU__logo__numero_commande_en_cours = 1
+
+	movei		#GPU__logo__numero_commande_en_cours,R10
+	movei		#GPU_logo_avance_pointeurs_commande_2,R27
+	load		(R10),R0
+	cmpq		#1,R0
+	jump		ne,(R27)
+	nop
+; commande en cours = 1
+	movei		#pointeur_actuel_sur_table_4_lignes_pour_zoom_Y,R11				; $87FE
+	movei		#134,R2
+	load		(R11),R1
+	movei		#table_4_lignes_pour_zoom_Y+(134*150),R4								; $FD9A		// 150*134
+	add			R2,R1
+	cmp			R4,R1
+	jr			ne,GPU_logo_avance_pointeurs_commande_1__pas_fin_table_4
+	nop
+	movei		#table_4_lignes_pour_zoom_Y,R1
+GPU_logo_avance_pointeurs_commande_1__pas_fin_table_4:
+; test par rapport à $87DC = GPU__logo__pointeur_sur_table4_pour_raz_de_commandes
+	movei		#GPU__logo__pointeur_sur_table4_pour_raz_de_commandes,R12
+	load		(R12),R5
+	cmp			R5,R1
+	jr			ne,GPU_logo_avance_pointeurs_commande_1__pas_arrive_a_GPU__logo__pointeur_sur_table4_pour_raz_de_commandes
+	;nop
+	moveq		#0,R6
+	store		R6,(R10)			; update $87E0
+GPU_logo_avance_pointeurs_commande_1__pas_arrive_a_GPU__logo__pointeur_sur_table4_pour_raz_de_commandes:
+	store		R1,(R11)
+
+
+
+
+
+
+GPU_logo_avance_pointeurs_commande_2:
+;--------------
+; - si $87E0 / GPU__logo__numero_commande_en_cours = 2
+	movei		#GPU__logo__numero_commande_en_cours,R10
+	movei		#GPU_logo_avance_pointeurs_commande_3,R27
+	load		(R10),R0
+	cmpq		#2,R0
+	jump		ne,(R27)
+	nop
+; commande en cours = 2
+	movei		#pointeur_actuel_sur_table_4_lignes_pour_zoom_Y,R11				; $87FE
+	movei		#134,R2
+	load		(R11),R1
+	movei		#table_4_lignes_pour_zoom_Y-134,R4								; $FD9A		// 150*134
+	sub			R2,R1				; -134
+	cmp			R4,R1
+	jr			ne,GPU_logo_avance_pointeurs_commande_2__pas_fin_table_4
+	nop
+	movei		#table_4_lignes_pour_zoom_Y+(134*149),R1					; $FD14 = $FD9A - 134
+GPU_logo_avance_pointeurs_commande_2__pas_fin_table_4:
+; test par rapport à $87DC = GPU__logo__pointeur_sur_table4_pour_raz_de_commandes
+	movei		#GPU__logo__pointeur_sur_table4_pour_raz_de_commandes,R12
+	load		(R12),R5
+	cmp			R5,R1
+	jr			ne,GPU_logo_avance_pointeurs_commande_2__pas_arrive_a_GPU__logo__pointeur_sur_table4_pour_raz_de_commandes
+	;nop
+	moveq		#0,R6
+	store		R6,(R10)			; update $87E0 = 0
+GPU_logo_avance_pointeurs_commande_2__pas_arrive_a_GPU__logo__pointeur_sur_table4_pour_raz_de_commandes:
+	store		R1,(R11)
+
+
+
+
+GPU_logo_avance_pointeurs_commande_3:
+;--------------
+; - si $87E0 / GPU__logo__numero_commande_en_cours = 3
+	movei		#GPU__logo__numero_commande_en_cours,R10
+	movei		#GPU_logo_avance_pointeurs_avance_pointeur_deplacement_en_X,R27
+	load		(R10),R0
+	cmpq		#3,R0
+	jump		ne,(R27)
+	nop
+; commande en cours = 3
+	movei		#GPU__logo__pointeur_sur_table4_pour_raz_de_commandes,R11
+	load		(R11),R1
+	subq		#1,R1
+	store		R1,(R11)
+	cmpq		#0,R1
+	jr			ne,GPU_logo_avance_pointeurs_avance_pointeur_deplacement_en_X
+	;nop
+	moveq		#0,R6	
+	store		R6,(R10)			; update $87E0 = 0
+
+
+
+GPU_logo_avance_pointeurs_avance_pointeur_deplacement_en_X:
+;--------------
+; avance ou recule sur deplacement en X 
+	movei		#pointeur_actuel_sur_table_2_positions_en_X,R11
+	movei		#FIN_table_2_positions_en_X-192,R2
+	load		(R11),R1
+	addq		#2,R1
+	cmp			R2,R1
+	jr			ne,GPU_logo_avance_pointeurs_avance_pointeur_deplacement_en_X__pas_fin_table_deplacement_en_X
+	nop
+	movei		#table_2_positions_en_X,R1
+GPU_logo_avance_pointeurs_avance_pointeur_deplacement_en_X__pas_fin_table_deplacement_en_X:
+	store		R1,(R11)
+	
+
+
+;--------------
 ; pointeur_actuel_sur_table_5_waves_en_Y = $87F6
 	movei		#pointeur_actuel_sur_table_5_waves_en_Y,R10
 	movei		#(FIN_table_5_waves_en_Y+$86BE-$870E),R12
@@ -1722,7 +2120,11 @@ GPU_gestion_pointeurs_logo__pas_de_bouclage_sur_table3:
 	store		R0,(R10)
 
 
+		.endif
 
+		movei	#BG,R26
+		movei	#$FFFF,R25				; blanc en haut
+		storew	R25,(R26)
 
 
 ;----------------------------------------------
@@ -1730,28 +2132,29 @@ GPU_gestion_pointeurs_logo__pas_de_bouclage_sur_table3:
 
 ; R0=tmp
 ; R1=tmp
-
+; R2 = tmp
+; R3 = tmp
+; R4 = tmp
+; R5 =
+; R6 = %11				masque pour determiner predecalage
+; R7 = $FFFFFFFC		masque pour arrondir l'adresse en X
 ; R8 = 320
 ; R9 = 40
 ; ------
 ; R10= logo
 ; R11 = R10+1
-; R13 = source des positions en X								au pixel
-; R16 = source des increment en X pour wave en X				au pixel
-; R17 = choix des lignes en Y									*320
 ; R12 = source des lignes de la wave en Y						*320
-; R13 = pointeur en cours sur wave en Y
+; R13 = pointeur sur graph logo actuel
 ; R14 = pointeur sur  table 4 des lignes pour zoom Y
 ; R15 = pointeur sur table 3 increments en X pour la vague
 ; R16 = table des positions en X
-; R17 = table des X pour wave en X
 ; R18 = pointeur sur le debut du logo en cours
 ; R19 = 
 ; ------
 ; R20 = dest en cours
 ; R21 = dest + 1 en cours
 ; R22 = destination en memoire
-; R23 =  
+; R23 =  increment ligne source
 ; R24 = position dans la destination
 ; R25 = compteur de lignes à afficher ( 62 )
 ; R26 = compteur de blocs de 8 pixels (40)
@@ -1762,17 +2165,19 @@ GPU_gestion_pointeurs_logo__pas_de_bouclage_sur_table3:
 ; R30 =
 
 	movei	#pointeur_actuel_sur_table_5_waves_en_Y,R1							; $87F6
+	moveq	#%11,R6																; masque pour determiner predecalage
 	movei	#GPU_pointeur_sur_zone_logo_a_modifier,R0
+	movei	#$FFFFFFFC,R7														; masque pour arrondir l'adresse en X
 	movei	#pointeur_actuel_sur_table_2_positions_en_X,R20						; $87EE
 	movei	#pointeur_actuel_sur_table_4_lignes_pour_zoom_Y,R21					; $87FE
 	movei	#pointeur_actuel_sur_table_3_increments_en_X_pour_vague,R10			; $87F2
 	movei	#40,R9
-	movei	#GPU_pointeur_sur_data_graph_logo_actuel,R13
+	movei	#GPU_pointeur_sur_data_graph_logo_actuel,R13						; pointe sur la liste des prédecalages du logo actuel
 	load	(R1),R12
-	load	(R13),R18							 ; R28 = adresse graph du logo
+	load	(R13),R18							 ; R18 = tables des adresses des graph du logo
 	;movei	#buffer_logo_ATARI_etendu,R18
 	load	(R20),R16
-	movei	#62,R25
+	movei	#62,R25								; 62
 	load	(R0),R24
 	movei	#GPU_logo_Omega_boucle_8_pixels,R27
 	load	(R21),R14
@@ -1781,15 +2186,38 @@ GPU_gestion_pointeurs_logo__pas_de_bouclage_sur_table3:
 	movei	#320,R8
 
 GPU_logo_Omega_boucle_1_ligne:
-	move	R18,R10							; R10 = data graph logo
-	loadw	(R16),R0
-	move	R12,R13
-	loadw	(R14),R1
-	add		R0,R10							; data graph logo + table 2 : positions en X
+; determiner R18 en fonction de X
+
+	
+	loadw	(R16),R0						; R0=position en X
+	move	R12,R13							; R13=pointeur table des waves en Y
+	loadw	(R15),R4						; R4 = increment en X pour vague
+	
+	loadw	(R14),R1						; R14= table choix des lignes en Y
+	add		R4,R0							; R0 = position en X
+
+	move	R18,R3							; R18 = table datas graph logo predecalés
+	move	R0,R2
+
+	and		R6,R2							; sur 2 bits
+	sub		R2,R0
+	;and		R7,R0							; arrondit à multiple de 4
+
+
+	shlq	#2,R2							; *4
+	add		R2,R3
+	
+	
+	
+	load	(R3),R10						; R10=adresse relle du graph du logo, predecalé
+	
+	sub		R0,R10							; data graph logo + table 2 : positions en X
+	
+	
+	
 	addq	#2,R16
-	loadw	(R15),R0
 	addq	#2,R14
-	add		R0,R10							; data graph logo + table 3 : increments en X pour vague
+	
 	addq	#2,R15
 	add		R1,R10							; data graph logo + table 4 : table des lignes pour zoom Y	
 
@@ -1798,27 +2226,26 @@ GPU_logo_Omega_boucle_1_ligne:
 	move	R9,R26
 	move	R24,R20
 
-	addq	#1,R21
-	addq	#1,R11
+	addq	#4,R21
+	addq	#4,R11
 
 GPU_logo_Omega_boucle_8_pixels:
 	loadw	(R13),R2
-	;or		R2,R2
 	add		R2,R20
+	load	(R10),R0
 	addq	#2,R13
-	add		R2,R21
-	
+; version theorique 4 pixels d'un coup, consecutifs car prédécalés
 ; 8 pixels
-	.rept	4
-	loadb	(R10),R0
-	loadb	(R11),R1
-	addq	#2,R10
-	addq	#2,R11
-	storeb	R0,(R20)
-	storeb	R1,(R21)
-	addq	#2,R20
-	addq	#2,R21
-	.endr
+	add		R2,R21
+	load	(R11),R1			; R1=R0+4
+	addq	#8,R10
+	addq	#8,R11
+	store	R0,(R20)
+	store	R1,(R21)
+	addq	#8,R20
+	addq	#8,R21
+	
+;------------------	
 
 	sub		R2,R20
 	sub		R2,R21
@@ -1830,16 +2257,137 @@ GPU_logo_Omega_boucle_8_pixels:
 
 ; ligne suivante
 ; 40*8 = 320
-	add		R8,R10
-	add		R8,R11
+	;add		R8,R10
+	;add		R8,R11
 		
 	subq	#1,R25
 	jump	ne,(R28)
 	nop
 
 
+; --------------
+; avancer pointeur Y du scrolling
+	movei	#GPU_pointeur_actuel_sur_table_Y_scrolling,R1
+	movei	#table_Y_scrolling+$210,R3
+	load	(R1),R0
+	addq	#8,R0
+	cmp		R3,R0
+	jr		ne,GPU_avance_pointeur_Y_scrolling__pas_de_bouclage
+	nop
+	movei	#table_Y_scrolling,R0
+GPU_avance_pointeur_Y_scrolling__pas_de_bouclage:
+	store	R0,(R1)
+	
 
 
+
+
+
+;----------------------------------------------
+; routine affichae du scrolling, 16 pixels par 16 pixels
+; R0=tmp
+; R1=tmp
+; R2 = 
+; R3 = 
+; R4 = 
+; R5 =
+; R6 = 
+; R7 = GPU_scrolling_offset_palette_actuelle
+; R8 = 320
+; R9 = 20
+; ------
+; R10 = buffer scrolling
+; R11 = buffer scrolling + 1
+; R12 = 
+; R13 = table des Y du scrolling actuelle
+; R14 = table des Y du scrolling
+; R15 = 
+; R16 = 
+; R18 = 
+; R19 = 
+; ------
+; R20 = 
+; R21 = 
+; R22 = 
+; R23 = 
+; R24 = 
+; R25 = compteur de lignes à afficher ( 13 )
+; R26 = compteur boucles 16 pixels
+; R27 = GPU_scrolling__boucle_16_pixels
+; R28 = GPU_scrolling__boucle_lignes
+; R29 =
+; ------
+; R30 =
+
+	movei	#GPU_scrolling_offset_palette_actuelle,R20
+	movei	#GPU_scrolling__boucle_16_pixels,R27
+	movei	#GPU_scrolling__boucle_lignes,R28
+	load	(R20),R7
+	movei	#20,R9										; 320/16=20
+	movei	#13,R25
+	movei	#320,R8
+
+; source des lignes en Y
+	movei	#GPU_pointeur_actuel_sur_table_Y_scrolling,R1
+	load	(R1),R14
+
+; source
+	movei	#buffer_scrolling_double_largeur,R10
+	move	R10,R11
+	addq	#4,R11
+	
+; dest
+	movei	#GPU_pointeur_sur_zone_scrolling_a_modifier,R0
+	load	(R0),R20
+	move	R20,R21
+	addq	#4,R21
+	
+
+GPU_scrolling__boucle_lignes:
+		
+	move	R14,R13
+	move	R9,R26
+	
+GPU_scrolling__boucle_16_pixels:
+	loadw	(R13),R2
+	addq	#6,R13
+	
+	add		R2,R20
+	add		R2,R21
+
+			.rept	2
+			load	(R10),R0			; 4 pixels
+			load	(R11),R1			; R1=R0+4
+			add		R7,R0
+			addq	#8,R10
+			add		R7,R1
+			addq	#8,R11
+			store	R0,(R20)
+			store	R1,(R21)
+			addq	#8,R20
+			addq	#8,R21
+			.endr
+
+	sub		R2,R20
+	sub		R2,R21
+
+	subq	#1,R26
+	jump	ne,(R27)				; 40 * 8 = 320 pixels
+	nop
+
+; next line
+	add		R8,R10
+	add		R8,R11
+
+	subq	#1,R25
+	jump	ne,(R28)
+	nop
+
+
+
+		movei	#BG,R26
+		movei	#$0000,R25				; blanc en haut
+		storew	R25,(R26)
 
 
 ;----------------------------------------------
@@ -1873,6 +2421,14 @@ GPU_boucle_wait_vsync:
 		load	(R1),R3				
 		store	R2,(R1)
 		store	R3,(R0)
+
+; swap les pointeur sur les zones de buffer du scrolling
+		movei	#GPU_pointeur_sur_zone_scrolling_a_modifier,R20
+		movei	#GPU_pointeur_sur_zone_scrolling_a_afficher,R21
+		load	(R20),R2
+		load	(R21),R3				
+		store	R2,(R21)
+		store	R3,(R20)
 
 
 ; swap les pointeurs d'OL
@@ -1954,6 +2510,8 @@ GPU_premiere_ligne:				dc.l		0				; lus 2 fois
 GPU_derniere_ligne:				dc.l		0
 GPU_pointeur_sur_zone_logo_a_modifier:		dc.l		zone_logo_1
 GPU_pointeur_sur_zone_logo_a_afficher:		dc.l		zone_logo_2
+GPU_pointeur_sur_zone_scrolling_a_modifier:		dc.l		zone_scrolling_1
+GPU_pointeur_sur_zone_scrolling_a_afficher:		dc.l		zone_scrolling_2
 
 
 
@@ -1962,7 +2520,11 @@ pointeur_actuel_sur_table_3_increments_en_X_pour_vague:			dc.l		table_3_incremen
 pointeur_actuel_sur_table_4_lignes_pour_zoom_Y:					dc.l		table_4_lignes_pour_zoom_Y				; $87FE
 pointeur_actuel_sur_table_5_waves_en_Y:							dc.l		table_5_waves_en_Y+2					; $87F6
 
-GPU_pointeur_sur_data_graph_logo_actuel:						dc.l		buffer_logo_ATARI_etendu
+GPU_pointeur_actuel_sur_table_Y_scrolling:						dc.l		table_Y_scrolling						; $1C66=L0044 = offset actuel sur la courbe des Y
+GPU_scrolling_offset_palette_actuelle:							dc.l		$0							; $00000000 ou $20202020
+
+
+GPU_pointeur_sur_data_graph_logo_actuel:						dc.l		table_adresses_logo_ATARI_predecale
 
 GPU__logo__pointeur_sur_table_des_commandes:					dc.l		logo_table_1_commandes
 GPU__logo__numero_commande_en_cours:							dc.l		0										; $87E0
@@ -3593,40 +4155,64 @@ CLUT_RGB:
         ;dc.w    0x0000
         dc.w    $E738				; 1
         dc.w    $C720
-        dc.w    $E728
+        dc.w    $E728				;3
         dc.w    $E030
-        dc.w    $E028
+        dc.w    $E028				;5
         dc.w    $C020
-        dc.w    $A710
+        dc.w    $A710				;7
         dc.w    $E038
-        dc.w    $6500
+        dc.w    $6500				;9
         dc.w    $8600
-        dc.w    $8010
+        dc.w    $8010				;11
         dc.w    $A018
-        dc.w    $4400
+        dc.w    $4400				;13
         dc.w    $2300
-        dc.w    $6008
+        dc.w    $6008				;15
 ; 15 couleurs pour logo OMEGA
-        dc.w    $0018				; 15
+        dc.w    $0018				; 16
         dc.w    $0028
         dc.w    $8438
         dc.w    $E738
-        dc.w    $A538
+        dc.w    $A538				; 20
         dc.w    $E338
         dc.w    $E020
         dc.w    $C000
-        dc.w    $0038
+        dc.w    $0038				; 24
         dc.w    $E010
         dc.w    $E030
         dc.w    $6338
-        dc.w    $0020
+        dc.w    $0020				; 28
         dc.w    $8000
         dc.w    $6000
+		dc.w	$0000				; 31
+; 15 couleurs pour logo OMEGA
+		dc.w	$0000				; 32
+        dc.w    $0018				; 33
+        dc.w    $0028
+        dc.w    $8438
+        dc.w    $E738
+        dc.w    $A538				; 37
+        dc.w    $E338
+        dc.w    $E020
+        dc.w    $C000
+        dc.w    $0038				; 
+        dc.w    $E010
+        dc.w    $E030
+        dc.w    $6338
+        dc.w    $0020				; 45
+        dc.w    $8000
+        dc.w    $6000
+		dc.w	$0000				; 48
+		
 
 	.dphrase
 logos_originaux:
 ; 66*320
 logo_ATARI:
+	;.rept		640*10
+	;dc.b		02,02,00,00
+	;.endr
+
 	.incbin		"c:\\jaguar\\logo_omega_atari.png_JAG"
 logo_OMEGA:
 	.incbin		"c:\\jaguar\\logo_omega_omega.png_JAG"
@@ -3635,26 +4221,26 @@ logo_OMEGA:
 logo_table_1_commandes:
 ; - 1: table des commandes de controle du logo : table pointée par 87E2 : de 8778, se termine par zéro en $87d8
 		dc.l		$00000001				; s'applique sur 87DC donc sur 87FE donc sur table 4 
-		dc.l		$0000c274				; ------
+		dc.l		($C274-$AF16+table_4_lignes_pour_zoom_Y)				; OK
 		dc.l		$00000002				; OK
 		dc.l		$00000096				; s'applique sur 87DC, en fait sur 87EE => sur table positions en X
 		dc.l		$00000003				; s'appliquer à 87FE donc sur table 4 
-		dc.l		$0000af16				; ------
+		dc.l		table_4_lignes_pour_zoom_Y								; OK
 		dc.l		$00000001				; OK
-		dc.l		$0000c274				; ------
+		dc.l		($C274-$AF16+table_4_lignes_pour_zoom_Y)				; OK
 		dc.l		$00000002				; OK
 		dc.l		$00000032				; OK
 		dc.l		$00000003				; s'appliquer à 87FE donc sur table 4 
-		dc.l		$0000af16				; ------
+		dc.l		table_4_lignes_pour_zoom_Y								; OK
 		dc.l		$00000005				; OK changement de logo : on passe au logo OMEGA
 		;dc.l		$00000006				; ok changement de palette
 		;dc.l		$00006928				; ok changement de palette
 		dc.l		$00000003				; OK
-		dc.l		$0000c274				; ------
+		dc.l		($C274-$AF16+table_4_lignes_pour_zoom_Y)				; OK
 		dc.l		$00000002				; OK
 		dc.l		$00000032				; OK
 		dc.l		$00000001				; OK
-		dc.l		$0000af16				; ------
+		dc.l		table_4_lignes_pour_zoom_Y								; OK
 		dc.l		$00000004				; OK changement de logo
 		;dc.l		$00000006				; ok changement de palette
 		;dc.l		$00006908				; ok changement de palette
@@ -3688,9 +4274,210 @@ fichier_coso_depacked:
 		.incbin			"C:\\Jaguar\\COSO\\fichiers mus\\COSO\\NY2.MUS"			; demo OMEGA F2
 		even
 			
+		.dphrase
+table_Y_scrolling:
+		DC.B     $00,'*',$00,'*',$00,'+' 
+		DC.B      $00,',',$00,'-',$00,'.',$00,'/'
+		DC.B      $00,'0',$00,'1',$00,'2',$00,'3'
+		DC.B      $00,'4',$00,'5',$00,'6',$00,'7'
+		DC.B      $00,'8',$00,'9',$00,':',$00,';'
+		DC.B      $00,'<',$00,'=',$00,'>',$00,'?'
+		DC.B      $00,'?',$00,'@',$00,'A',$00,'B'
+		DC.B      $00,'C',$00,'C',$00,'D',$00,'E'
+		DC.B      $00,'F',$00,'F',$00,'G',$00,'H'
+		DC.B      $00,'I',$00,'I',$00,'J',$00,'K'
+		DC.B      $00,'K',$00,'L',$00,'L',$00,'M'
+		DC.B      $00,'M',$00,'N',$00,'N',$00,'O'
+		DC.B      $00,'O',$00,'P',$00,'P',$00,'P'
+		DC.B      $00,'Q',$00,'Q',$00,'R',$00,'R'
+		DC.B      $00,'R',$00,'R',$00,'S',$00,'S'
+		DC.B      $00,'S',$00,'S',$00,'S',$00,'S'
+		DC.B      $00,'S',$00,'S',$00,'S',$00,'S'
+		DC.B      $00,'S',$00,'S',$00,'S',$00,'S'
+		DC.B      $00,'S',$00,'S',$00,'S',$00,'S'
+		DC.B      $00,'S',$00,'R',$00,'R',$00,'R'
+		DC.B      $00,'Q',$00,'Q',$00,'Q',$00,'P'
+		DC.B      $00,'P',$00,'P',$00,'O',$00,'O'
+		DC.B      $00,'N',$00,'N',$00,'M',$00,'M'
+		DC.B      $00,'L',$00,'L',$00,'K',$00,'J'
+		DC.B      $00,'J',$00,'I',$00,'I',$00,'H'
+		DC.B      $00,'G',$00,'F',$00,'F',$00,'E'
+		DC.B      $00,'D',$00,'C',$00,'C',$00,'B'
+		DC.B      $00,'A',$00,'@',$00,'?',$00,'>'
+		DC.B      $00,'>',$00,'=',$00,'<',$00,';'
+		DC.B      $00,':',$00,'9',$00,'8',$00,'7'
+		DC.B      $00,'6',$00,'5',$00,'4',$00,'3'
+		DC.B      $00,'2',$00,'1',$00,'0',$00,'/'
+		DC.B      $00,'.',$00,'-',$00,',',$00,'+'
+		DC.B      $00,'*',$00,')',$00,'(',$00,$27
+		DC.B      $00,'&',$00,'%',$00,'$',$00,'#'
+		DC.B      $00,'"',$00,'!',$00,'!',$00,' '
+		DC.B      $00,$1F,$00,$1E,$00,$1D,$00,$1C
+		DC.B      $00,$1B,$00,$1A,$00,$19,$00,$18
+		DC.B      $00,$17,$00,$16,$00,$15,$00,$14
+		DC.B      $00,$14,$00,$13,$00,$12,$00,$11
+		DC.B      $00,$10,$00,$0F,$00,$0F,$00,$0E
+		DC.B      $00,$0D,$00,$0C,$00,$0C,$00,$0B
+		DC.B      $00,$0A,$00,$0A,$00,$09,$00,$08
+		DC.B      $00,$08,$00,$07,$00,$07,$00,$06
+		DC.B      $00,$06,$00,$05,$00,$05,$00,$04
+		DC.B      $00,$04,$00,$03,$00,$03,$00,$02
+		DC.B      $00,$02,$00,$02,$00,$01,$00,$01
+		DC.B      $00,$01,$00,$01,$00,$00,$00,$00
+		DCB.W     17,0
+		DC.B      $00,$01,$00,$01,$00,$01,$00,$02
+		DC.B      $00,$02,$00,$02,$00,$03,$00,$03
+		DC.B      $00,$03,$00,$04,$00,$04,$00,$05
+		DC.B      $00,$05,$00,$06,$00,$06,$00,$07
+		DC.B      $00,$07,$00,$08,$00,$09,$00,$09
+		DC.B      $00,$0A,$00,$0A,$00,$0B,$00,$0C
+		DC.B      $00,$0D,$00,$0D,$00,$0E,$00,$0F
+		DC.B      $00,$10,$00,$10,$00,$11,$00,$12
+		DC.B      $00,$13,$00,$14,$00,$15,$00,$15
+		DC.B      $00,$16,$00,$17,$00,$18,$00,$19
+		DC.B      $00,$1A,$00,$1B,$00,$1C,$00,$1D
+		DC.B      $00,$1E,$00,$1F,$00,' ',$00,'!'
+		DC.B      $00,'"',$00,'#',$00,'$',$00,'%'
+		DC.B      $00,'&',$00,$27,$00,'(',$00,')'
+		DC.B      $00,'*',$00,'*',$00,'+',$00,','
+		DC.B      $00,'-',$00,'.',$00,'/',$00,'0'
+		DC.B      $00,'1',$00,'2',$00,'3',$00,'4'
+		DC.B      $00,'5',$00,'6',$00,'7',$00,'8'
+		DC.B      $00,'9',$00,':',$00,';',$00,'<'
+		DC.B      $00,'=',$00,'>',$00,'?',$00,'?'
+		DC.B      $00,'@',$00,'A',$00,'B',$00,'C'
+		DC.B      $00,'C',$00,'D',$00,'E',$00,'F'
+		DC.B      $00,'F',$00,'G',$00,'H',$00,'I'
+		DC.B      $00,'I',$00,'J',$00,'K',$00,'K'
+		DC.B      $00,'L',$00,'L',$00,'M',$00,'M'
+		DC.B      $00,'N',$00,'N',$00,'O',$00,'O'
+		DC.B      $00,'P',$00,'P',$00,'P',$00,'Q'
+		DC.B      $00,'Q',$00,'R',$00,'R',$00,'R'
+		DC.B      $00,'R',$00,'S',$00,'S',$00,'S'
+		DC.B      $00,'S',$00,'S',$00,'S',$00,'S'
+		DC.B      $00,'S',$00,'S',$00,'S',$00,'S'
+		DC.B      $00,'S',$00,'S',$00,'S',$00,'S'
+		DC.B      $00,'S',$00,'S',$00,'S',$00,'S'
+		DC.B      $00,'R',$00,'R',$00,'R',$00,'Q'
+		DC.B      $00,'Q',$00,'Q',$00,'P',$00,'P'
+		DC.B      $00,'P',$00,'O',$00,'O',$00,'N'
+		DC.B      $00,'N',$00,'M',$00,'M',$00,'L'
+		DC.B      $00,'L',$00,'K',$00,'J',$00,'J'
+		DC.B      $00,'I',$00,'I',$00,'H',$00,'G'
+		DC.B      $00,'F',$00,'F',$00,'E',$00,'D'
+		DC.B      $00,'C',$00,'C',$00,'B',$00,'A'
+		DC.B      $00,'@',$00,'?',$00,'>',$00,'>'
+		DC.B      $00,'=',$00,'<',$00,';',$00,':'
+		DC.B      $00,'9',$00,'8',$00,'7',$00,'6'
+		DC.B      $00,'5',$00,'4',$00,'3',$00,'2'
+		DC.B      $00,'1',$00,'0',$00,'/',$00,'.'
+		DC.B      $00,'-',$00,',',$00,'+',$00,'*'
+		DC.B      $00,')',$00,'(',$00,$27,$00,'&'
+		DC.B      $00,'%',$00,'$',$00,'#',$00,'"'
+		DC.B      $00,'!',$00,'!',$00,' ',$00,$1F
+		DC.B      $00,$1E,$00,$1D,$00,$1C,$00,$1B
+		DC.B      $00,$1A,$00,$19,$00,$18,$00,$17
+		DC.B      $00,$16,$00,$15,$00,$14,$00,$14
+		DC.B      $00,$13,$00,$12,$00,$11,$00,$10
+		DC.B      $00,$0F,$00,$0F,$00,$0E,$00,$0D
+		DC.B      $00,$0C,$00,$0C,$00,$0B,$00,$0A
+		DC.B      $00,$0A,$00,$09,$00,$08,$00,$08
+		DC.B      $00,$07,$00,$07,$00,$06,$00,$06
+		DC.B      $00,$05,$00,$05,$00,$04,$00,$04
+		DC.B      $00,$03,$00,$03,$00,$02,$00,$02
+		DC.B      $00,$02,$00,$01,$00,$01,$00,$01
+		DC.B      $00,$01,$00,$00,$00,$00,$00,$00
+		DCB.W     16,0
+		DC.B      $00,$01,$00,$01,$00,$01,$00,$02
+		DC.B      $00,$02,$00,$02,$00,$03,$00,$03
+		DC.B      $00,$03,$00,$04,$00,$04,$00,$05
+		DC.B      $00,$05,$00,$06,$00,$06,$00,$07
+		DC.B      $00,$07,$00,$08,$00,$09,$00,$09
+		DC.B      $00,$0A,$00,$0A,$00,$0B,$00,$0C
+		DC.B      $00,$0D,$00,$0D,$00,$0E,$00,$0F
+		DC.B      $00,$10,$00,$10,$00,$11,$00,$12
+		DC.B      $00,$13,$00,$14,$00,$15,$00,$15
+		DC.B      $00,$16,$00,$17,$00,$18,$00,$19
+		DC.B      $00,$1A,$00,$1B,$00,$1C,$00,$1D
+		DC.B      $00,$1E,$00,$1F,$00,' ',$00,'!'
+		DC.B      $00,'"',$00,'#',$00,'$',$00,'%'
+		DC.B      $00,'&',$00,$27,$00,'(',$00,')'
+FIN_table_Y_scrolling:
+.dphrase
 	
 
 	.dphrase
+table_adresses_logo_ATARI_predecale:		
+		dc.l		buffer_logos_predecales_ATARI_0+decalage_debut_utilisation_logo
+		dc.l		buffer_logos_predecales_ATARI_1+decalage_debut_utilisation_logo
+		dc.l		buffer_logos_predecales_ATARI_2+decalage_debut_utilisation_logo
+		dc.l		buffer_logos_predecales_ATARI_3+decalage_debut_utilisation_logo
+table_adresses_logo_OMEGA_predecale:
+		dc.l		buffer_logos_predecales_OMEGA_0+decalage_debut_utilisation_logo
+		dc.l		buffer_logos_predecales_OMEGA_1+decalage_debut_utilisation_logo
+		dc.l		buffer_logos_predecales_OMEGA_2+decalage_debut_utilisation_logo
+		dc.l		buffer_logos_predecales_OMEGA_3+decalage_debut_utilisation_logo
+
+texte_scrolling:
+		DC.B      "JIPPIDIP"
+		DC.B      "PIDOOOO_"
+		DC.B      "___     "
+		DC.B      "CREDITS "
+		DC.B      "TO     L"
+		DC.B      "IESEN DI"
+		DC.B      "ST    HA"
+		DC.B      "Q SCROLL"
+		DC.B      "      RE"
+		DC.B      "D LOGOS]"
+		DC.B      "        "
+		DC.B      "  HEJA^ "
+		DC.B      "OSS VI E"
+		DC.B      " KUL]]]]"
+		DC.B      "        "
+		DC.B      " THE FUN"
+		DC.B      "NY MUPP "
+		DC.B      "DEMO HID"
+		DC.B      "DEN BEHI"
+		DC.B      "ND THE F"
+		DC.B      " BUTTON "
+		DC.B      "NUMBER T"
+		DC.B      "HREE^ WA"
+		DC.B      "S ALSO M"
+		DC.B      "ADE BY L"
+		DC.B      "IESEN AN"
+		DC.B      "D RED]]]"
+		DC.B      "]]      "
+		DC.B      " GREATER"
+		DC.B      "S   TCB "
+		DC.B      "[SUGER",92," "
+		DC.B      "   SYNC "
+		DC.B      "[FUNNY T"
+		DC.B      "ALKERS",92," "
+		DC.B      "     NO "
+		DC.B      "CREW [KU"
+		DC.B      "L PARTY",92
+		DC.B      "     THE"
+		DC.B      " REST OF"
+		DC.B      " ALL MUP"
+		DC.B      "PERS]]]]"
+		DC.B      "]       "
+		DC.B      "   GO HO"
+		DC.B      "ME OR I "
+		DC.B      "WILL WRA"
+		DC.B      "P]]]]   "
+		DC.B      "        "
+		DC.B      "      ",$FF,$00
+		.phrase
+
+buffer_scrolling_double_largeur:		;ds.b		13*320*2
+		.rept		13
+			.rept	80
+				dc.b	01,01,00,00
+			.endr
+			.rept	80
+				dc.b	02,02,00,00
+			.endr
+		.endr
 
 
 		.BSS
@@ -3720,18 +4507,69 @@ height:         		ds.w   1
 taille_liste_OP:		ds.l	1
 
             .dphrase
-buffer_logo_ATARI_etendu:
-			ds.b		66*640
-buffer_logo_OMEGA_etendu:
-			ds.b		66*640
-
+			ds.b		640
+;buffer_logo_ATARI_etendu:
+;			ds.b		66*640
+;buffer_logo_OMEGA_etendu:
+;			ds.b		66*640
 
             .dphrase
+;buffer_logos_predecales:
+buffer_logos_predecales_ATARI_0:		ds.b		67*640
+buffer_logos_predecales_ATARI_1:		ds.b		67*640
+buffer_logos_predecales_ATARI_2:		ds.b		67*640
+buffer_logos_predecales_ATARI_3:		ds.b		67*640
+buffer_logos_predecales_OMEGA_0:		ds.b		67*640
+buffer_logos_predecales_OMEGA_1:		ds.b		67*640
+buffer_logos_predecales_OMEGA_2:		ds.b		67*640
+buffer_logos_predecales_OMEGA_3:		ds.b		67*640
+
+; 13 lignes en hauteur
+;buffer_scrolling_double_largeur:		ds.b		13*320*2
+
+            .dphrase
+fonte_256_couleurs:						ds.b		38*13*16		; 38 caracteres * 13 lignes * 16 pixels
 ; zones ecran
 ; en cours de modif & affichée
+            .dphrase
 zone_logo_1:						ds.b		320*(62+44)			; 106
+            .dphrase
 zone_logo_2:						ds.b		320*(62+44)
+			.dphrase
+; zones ecran scrolling = 83 lignes 
+zone_scrolling_1:					ds.b		320*(83+13)
+zone_scrolling_2:					ds.b		320*(83+13)
 
 	.dphrase
 
 FIN_RAM:
+
+
+
+; ////////////////////////////////	
+	.if		1=0
+; 8 pixels
+	.rept	2
+	loadb	(R10),R0
+	loadb	(R11),R1
+	shlq	#24,R0
+	addq	#2,R10
+	shlq	#16,R1
+	loadb	(R10),R4
+	addq	#2,R11
+	addq	#2,R10
+	shlq	#8,R4
+	loadb	(R11),R3
+	or		R1,R0
+	addq	#2,R11
+	or		R4,R0
+	or		R3,R0
+	
+	
+	store	R0,(R20)
+	;storeb	R1,(R21)
+	addq	#4,R20
+	;addq	#2,R21
+	.endr
+	.endif
+; ////////////////////////////////	
