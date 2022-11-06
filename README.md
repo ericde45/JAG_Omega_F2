@@ -7,7 +7,9 @@ But the result is the greatest logo wave demo.
 and it's even better at 60 HZ !
 
 original code : Liesen and Haq
+
 logo by Red
 
 original video on Atari ST : https://youtu.be/Jr-n9ZP4F0s?t=372
+
 Jaguar version : https://youtu.be/9iGlcPxtzjY 
